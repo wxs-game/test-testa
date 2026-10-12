@@ -1,0 +1,22 @@
+# Blueprint для Render.com: один клик — и сервер Краша в интернете с https/wss.
+services:
+  - type: web
+    name: wxs-crash
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: HOST
+        value: 0.0.0.0          # PORT Render подставляет сам
+      - key: BOT_TOKEN
+        sync: false             # Render спросит значение при создании
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false             # https://ТВОЙ-НИК.github.io
