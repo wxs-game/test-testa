@@ -97,6 +97,7 @@ h2{font-size:30px;margin:24px 0 12px;font-weight:700}
 .msg code{background:#26272b;padding:1px 6px;border-radius:6px}
 .msg .katex-display{overflow-x:auto;overflow-y:hidden}
 .msg hr{border:0;border-top:1px solid var(--bd);margin:10px 0}
+.again{margin-top:10px;padding:8px 16px;border-radius:14px;background:#26272b;color:var(--yellow);font-size:16px}
 .empty{margin:auto;text-align:center;color:var(--mut);max-width:290px;font-size:19px}
 .dots span{display:inline-block;width:8px;height:8px;margin:0 2px;border-radius:50%;background:var(--mut);animation:bn 1s infinite}
 .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
@@ -269,7 +270,7 @@ async function ask(){
   for(let k=0;k<models.length;k++){
     for(let a=0;a<2;a++){
       try{const out=await call(p,models[k]);store.set("ok_"+p,models[k]);return out}
-      catch(e){last=e;if(!(e.retry||e.nf))throw e;if(e.nf)break;if(a===0)await sleep(900)}
+      catch(e){if(e instanceof TypeError){e.retry=true;e.net=true}last=e;if(!(e.retry||e.nf))throw e;if(e.nf)break;if(a===0)await sleep(900)}
     }
     if(k<models.length-1)toast(models[k]+" занята, пробую "+models[k+1]);
   }
@@ -288,7 +289,7 @@ async function call(p,model){
   }
   if(p==="gemini"){
     const contents=msgs.map((m,i)=>{const d=im(m,i),parts=[];if(d)parts.push({inline_data:{mime_type:"image/jpeg",data:d}});parts.push({text:m.text});return{role:m.role==="user"?"user":"model",parts}});
-    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents,generationConfig:{maxOutputTokens:8192}})});
+    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents,generationConfig:{maxOutputTokens:8192}})});
     j=await r.json();if(!r.ok)throw fail(j,r);
     const g=j.candidates?.[0];return ((g?.content?.parts||[]).map(x=>x.text||"").join("\n")+(g?.finishReason==="MAX_TOKENS"?CUT:""))||"Пустой ответ. Попробуй переформулировать или переснять фото.";
   }
@@ -390,7 +391,7 @@ $("#snap").onclick=()=>{
   const v=$("#vid");if(!v.videoWidth){$("#fcam").click();return}
   const vw=v.videoWidth,vh=v.videoHeight,R=(v.clientWidth/v.clientHeight)||.5;let sw=vw,sh=vh,sx=0,sy=0;
   if(vw/vh>R){sw=vh*R;sx=(vw-sw)/2}else{sh=vw/R;sy=(vh-sh)/2}
-  const k=Math.min(1,1800/sh),c=document.createElement("canvas");c.width=Math.round(sw*k);c.height=Math.round(sh*k);
+  const k=Math.min(1,1600/sh),c=document.createElement("canvas");c.width=Math.round(sw*k);c.height=Math.round(sh*k);
   c.getContext("2d").drawImage(v,sx,sy,sw,sh,0,0,c.width,c.height);
   const url=c.toDataURL("image/jpeg",.88);
   $("#still").src=url;$("#still").classList.add("on"); // кадр замирает, экран не прыгает
@@ -405,7 +406,7 @@ $("#file").onclick=()=>$("#fin").click();
 function picked(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=async()=>{setImg(await shrink(r.result));if(cur!=="chat")go("chat")};r.readAsDataURL(f);e.target.value=""}
 $("#fin").onchange=picked;$("#fcam").onchange=picked;
-function shrink(src,max=1800){return new Promise(res=>{const i=new Image();i.onload=()=>{
+function shrink(src,max=1600){return new Promise(res=>{const i=new Image();i.onload=()=>{
   const k=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);
   c.getContext("2d").drawImage(i,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.85))};i.src=src})}
 function setImg(u){pending=u;$("#prev img").src=u;$("#prev").style.display="block"}
@@ -437,13 +438,21 @@ async function send(){
   const img=pending;
   history.push({role:"user",text:text||"[фото]",img});
   add("user",text,img);$("#inp").value="";$("#inp").style.height="auto";clearImg();
+  const b=add("assistant","");run(b);
+}
+async function run(b){
   busy=true;$("#send").disabled=true;
-  const b=add("assistant","");b.querySelector("span").innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
+  b.querySelector("span").innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
   try{
     const out=await ask();
     history.push({role:"assistant",text:out});
     const s=b.querySelector("span");s.innerHTML=fmt(out);math(s);
-  }catch(e){history.pop();b.querySelector("span").innerHTML="⚠️ "+(e.retry?"Модели сейчас перегружены. Попробуй через минуту или добавь другие модели в настройках.":esc(String(e.message||e)))}
+  }catch(e){
+    const u=history.pop();
+    const m=e.net?"Нет связи с сервером ИИ. Проверь интернет или VPN, либо смени модель или провайдера в настройках.":e.retry?"Модели сейчас перегружены. Попробуй через минуту или добавь другие модели в настройках.":esc(String(e.message||e));
+    const s=b.querySelector("span");s.innerHTML="⚠️ "+m+'<br><button class="again">↻ Повторить</button>';
+    s.querySelector(".again").onclick=()=>{if(busy)return;history.push(u);run(b)};
+  }
   busy=false;$("#send").disabled=false;$("#chat").scrollTop=1e9;
 }
 $("#send").onclick=send;
@@ -460,7 +469,7 @@ $("#lm").onclick=async()=>{
   try{
     let ids=[];
     if(p==="gemini"){
-      const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",{headers:{"x-goog-api-key":key}});
+      const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key="+encodeURIComponent(key));
       const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);
       ids=j.models.filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")&&/gemini/.test(m.name)&&!/embed|image|tts|live|audio|robotics|computer|learnlm|gemma/i.test(m.name)).map(m=>m.name.replace("models/",""));
     }else if(p==="openrouter"){
